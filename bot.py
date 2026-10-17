@@ -11,13 +11,16 @@ AD_URL = "https://uplcm.com/4/11968073"
 
 # قواميس حفظ النقاط وحالة الإعلانات
 user_points = {}
-user_ad_status = {}
 
 def get_points(user_id):
     return user_points.get(user_id, 0)
 
 def add_point(user_id):
     user_points[user_id] = get_points(user_id) + 1
+
+def deduct_point(user_id):
+    if get_points(user_id) > 0:
+        user_points[user_id] -= 1
 
 # حفظ بيانات المشتركين
 def save_user(user):
@@ -87,37 +90,41 @@ def after_instagram(call):
     user_id = call.from_user.id
     
     markup = InlineKeyboardMarkup()
-    # زر الإعلان المربوط بـ Callback للزيادة المخفية
-    markup.add(InlineKeyboardButton("📢 اضغط هنا لمشاهدة الإعلان وتفعيل التحميل", callback_data="open_ad_and_reward"))
+    markup.add(InlineKeyboardButton("📢 مشاهدة إعلان (+1 نقطة)", callback_data="open_ad_and_reward"))
     
     bot.edit_message_text(
-        "ممتاز! تم تأكيد المتابعة بنجاح ✅\n\n"
-        "الآن اضغط على زر الإعلان أدناه لفتحه كشرط إجباري وتفعيل التحميل تلقائياً:",
+        f"ممتاز! تم تأكيد المتابعة بنجاح ✅\n\n"
+        f"💰 **نقاطك الحالية:** {get_points(user_id)} نقطة\n"
+        f"*(ملاحظة: كل فيديو يتطلب 1 نقطة للتحميل)*.\n\n"
+        f"اضغط على زر الإعلان أدناه لكسب نقاط والبدء بالتحميل:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=markup
     )
 
-# معالجة ضغطة زر الإعلان (إضافة النقطة خفية + فتح الرابط)
+# معالجة الضغط على زر الإعلان (إضافة +1 نقطة فوراً بشكل مخفي وفتح الرابط)
 @bot.callback_query_handler(func=lambda call: call.data == "open_ad_and_reward")
 def handle_ad_click(call):
     user_id = call.from_user.id
     
-    # 1. إضافة النقطة والسماح بالتحميل في الخلفية
+    # 1. إضافة 1 نقطة للرصيد تلقائياً في الخلفية
     add_point(user_id)
-    user_ad_status[user_id] = True
     
-    # 2. فتح رابط الإعلان فوراً للمستخدم عبر التلغرام
+    # 2. تحويل المستخدم لفتح رابط الإعلان
     bot.answer_callback_query(call.id, url=AD_URL)
     
-    # 3. تحديث نص الرسالة لعرض النقاط الجديدة وتوجيهه للتحميل
+    # 3. تحديث الرسالة بالنقاط الجديدة
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("📢 مشاهدة إعلان آخر (+1 نقطة)", callback_data="open_ad_and_reward"))
+    
     try:
         bot.edit_message_text(
-            f"✅ **تم تسجيل مشاهدة الإعلان وإضافة +1 نقطة!**\n\n"
-            f"💰 **نقاطك الحالية:** {get_points(user_id)} نقطة.\n\n"
-            f"📥 يمكنك الآن إرسال رابط أي فيديو لتحميله مباشرة:",
+            f"✅ **تم إضافة +1 نقطة بنجاح!**\n\n"
+            f"💰 **رصيد نقاطك الحالي:** {get_points(user_id)} نقاط.\n\n"
+            f"📥 يمكنك الآن إرسال رابط أي فيديو لتحميله، أو الضغط مجدداً لكسب المزيد من النقاط:",
             call.message.chat.id,
-            call.message.message_id
+            call.message.message_id,
+            reply_markup=markup
         )
     except Exception:
         pass
@@ -130,21 +137,20 @@ def handle_download(message):
     text = message.text.strip()
     
     if text.startswith('http'):
-        # التحقق من أن المستخدم ضغط على زر الإعلان
-        if not user_ad_status.get(user_id, False):
+        # التحقق من وجود نقطة واحدة على الأقل
+        if get_points(user_id) < 1:
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("📢 اضغط هنا لمشاهدة الإعلان أولاً", callback_data="open_ad_and_reward"))
+            markup.add(InlineKeyboardButton("📢 مشاهدة إعلان لكسب +1 نقطة", callback_data="open_ad_and_reward"))
             
             bot.reply_to(
                 message,
-                f"⚠️ **عذراً!** لا يمكنك تحميل الفيديو حتى تضغط على زر الإعلان أدناه أولاً:\n\n"
-                f"💰 **نقاطك الحالية:** {get_points(user_id)} نقطة.",
+                f"⚠️ **رصيدك غير كافٍ!**\n\n"
+                f"💰 **نقاطك الحالية:** {get_points(user_id)} نقطة.\n"
+                f"تكلفة تحميل الفيديو: **1 نقطة**.\n\n"
+                f"اضغط على زر الإعلان أدناه لكسب نقطة فوراً:",
                 reply_markup=markup
             )
             return
-
-        # إعادة ضبط حالة الإعلان للمرة القادمة
-        user_ad_status[user_id] = False
 
         file_name = f"video_{user_id}.mp4"
         msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو، يرجى الانتظار...")
@@ -165,19 +171,21 @@ def handle_download(message):
                     bot.send_video(message.chat.id, vid)
                 bot.delete_message(message.chat.id, msg.message_id)
 
+                # خصم 1 نقطة بعد نجاح التحميل
+                deduct_point(user_id)
+
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("📢 مشاهدة إعلان جديد كسب نقطة إضافية", callback_data="open_ad_and_reward"))
+            markup.add(InlineKeyboardButton("📢 مشاهدة إعلان (+1 نقطة)", callback_data="open_ad_and_reward"))
             
             bot.send_message(
                 message.chat.id,
-                f"✅ **تم التحميل بنجاح!**\n"
-                f"💰 **رصيد نقاطك:** {get_points(user_id)} نقطة.\n\n"
-                f"💡 لتحميل فيديو آخر، اضغط على زر الإعلان أدناه ثم أرسل الرابط:",
+                f"✅ **تم التحميل بنجاح!** (تم خصم 1 نقطة)\n\n"
+                f"💰 **رصيد نقاطك المتبقي:** {get_points(user_id)} نقطة.\n\n"
+                f"💡 أرسل رابطاً آخر للتحميل أو شاهد إعلاناً لكسب نقطة جديدة:",
                 reply_markup=markup
             )
 
         except Exception:
-            user_ad_status[user_id] = True  # إرجاع الصلاحية في حال فشل التحميل
             bot.edit_message_text("❌ متعذر التحميل حالياً من هذا الرابط (تأكد من أن الحساب عام وليس خاص).", message.chat.id, msg.message_id)
         finally:
             if os.path.exists(file_name):
@@ -186,4 +194,3 @@ def handle_download(message):
         bot.reply_to(message, "الرجاء إرسال رابط فيديو صالح يبدأ بـ http أو إرسال /start للبدء.")
 
 bot.infinity_polling(skip_pending=True)
-        
